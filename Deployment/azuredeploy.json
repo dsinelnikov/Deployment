@@ -1,0 +1,302 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "sqlServerLogin": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "denis"
+    },
+    "sqlServerPassword": {
+      "type": "securestring",
+      "defaultValue": "P@ssw0rd"
+    },
+    "vmsetLogin": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "denis"
+    },
+    "vmsetPassword": {
+      "type": "securestring",
+      "defaultValue": "P@ssw0rd1234"
+    },
+    "storageAccountType": {
+      "type": "string",
+      "defaultValue": "Standard_LRS",
+      "allowedValues": [
+        "Standard_LRS",
+        "Standard_ZRS",
+        "Standard_GRS",
+        "Standard_RAGRS",
+        "Premium_LRS"
+      ]
+    }
+  },
+  "variables": {
+    "api1-sql-serverName": "[concat('api1-sql-server-', uniqueString(resourceGroup().id))]",
+    "api1-sql-serverId": "[resourceId('Microsoft.Sql/servers', variables('api1-sql-serverName'))]",
+    "api1-sql-serverDbName": "[concat('api1-sql-server-db-', uniqueString(resourceGroup().id))]",
+    "api1-vnet-name": "[concat('api1-vnet-', uniqueString(resourceGroup().id))]",
+    "api1-vnet-id": "[resourceId('Microsoft.Network/virtualNetworks/', variables('api1-vnet-name'))]",
+    "api1-subnet-name": "[concat('api1-subnet-', uniqueString(resourceGroup().id))]",
+    "api-imageReference": {
+      "publisher": "MicrosoftWindowsServer",
+      "offer": "WindowsServer",
+      "sku": "2012-R2-Datacenter",
+      "version": "latest"
+    },
+    "api1-vmset-name": "[concat('api1Vmset', uniqueString(resourceGroup().id))]",
+    "api1-ipaddress-name": "[concat('api1-ipaddress-', uniqueString(resourceGroup().id))]",
+    "api1-ipaddress-id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('api1-ipaddress-name'))]",
+    "api1-ipconfig-name": "[concat('api1-config-', uniqueString(resourceGroup().id))]",
+    "api1-network-interface-name": "[concat('api1-network-interface-', uniqueString(resourceGroup().id))]",
+    "api1-bepool-name": "[concat('api1-bepool-', uniqueString(resourceGroup().id))]",
+    "api1-natpool-name": "[concat('api1-natpool-', uniqueString(resourceGroup().id))]",
+    "api1-loadbalancer-name": "[concat('api1-loadbalancer-', uniqueString(resourceGroup().id))]",
+    "api1-loadbalancer-id": "[resourceId('Microsoft.Network/loadBalancers', variables('api1-loadbalancer-name'))]",
+    "namingInfix": "[toLower(substring(concat(variables('api1-vmset-name'), uniqueString(resourceGroup().id)), 0, 9))]",
+    "newStorageAccountSuffix": "[concat(variables('namingInfix'), 'sa')]",
+    "uniqueStringArray": [
+      "[concat(uniqueString(concat(resourceGroup().id, variables('newStorageAccountSuffix'), '0')), variables('newStorageAccountSuffix'))]",
+      "[concat(uniqueString(concat(resourceGroup().id, variables('newStorageAccountSuffix'), '1')), variables('newStorageAccountSuffix'))]",
+      "[concat(uniqueString(concat(resourceGroup().id, variables('newStorageAccountSuffix'), '2')), variables('newStorageAccountSuffix'))]",
+      "[concat(uniqueString(concat(resourceGroup().id, variables('newStorageAccountSuffix'), '3')), variables('newStorageAccountSuffix'))]",
+      "[concat(uniqueString(concat(resourceGroup().id, variables('newStorageAccountSuffix'), '4')), variables('newStorageAccountSuffix'))]"
+    ],
+    "vhdContainerName": "[concat(variables('api1-vnet-name'), 'vhd')]",
+    "storageAccountName": "[concat('storageAccount', uniqueString(resourceGroup().id))]",
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('api1-vnet-name')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2018-02-01",
+      "tags": {
+        "displayName": "VirtualNetwork"
+      },
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.0.0.0/16"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('api1-subnet-name')]",
+            "properties": {
+              "addressPrefix": "10.0.0.0/24"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "name": "[variables('uniqueStringArray')[copyIndex()]]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-01-01",
+      "tags": {
+        "displayName": "StorageAccounts"
+      },
+      "copy": {
+        "name": "storageLoop",
+        "count": "[length(variables('uniqueStringArray'))]"
+      },
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "Storage"
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "[variables('api1-ipaddress-name')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-03-30",
+      "tags": {
+        "displayName": "PublicIP"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic",
+        "dnsSettings": {
+          "domainNameLabel": "[toLower(variables('api1-vmset-name'))]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Network/loadBalancers",
+      "name": "[variables('api1-loadbalancer-name')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-03-30",
+      "tags": {
+        "displayName": "LoadBalancer"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses/', variables('api1-ipaddress-name'))]"
+      ],
+      "properties": {
+        "frontendIPConfigurations": [
+          {
+            "name": "LoadBalancerFrontEnd",
+            "properties": {
+              "publicIPAddress": {
+                "id": "[variables('api1-ipaddress-id')]"
+              }
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "[variables('api1-bepool-name')]"
+          }
+        ],
+        "inboundNatPools": [
+          {
+            "name": "[variables('api1-natpool-name')]",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[concat(variables('api1-loadbalancer-id'), '/frontendIPConfigurations/loadBalancerFrontEnd')]"
+              },
+              "protocol": "tcp",
+              "frontendPortRangeStart": 50000,
+              "frontendPortRangeEnd": 50099,
+              "backendPort": 3389
+            }
+          }
+        ],
+        "loadBalancingRules": [
+          {
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('api1-loadbalancer-name')), '/frontendIPConfigurations/LoadBalancerFrontend')]"
+              },
+              "backendAddressPool": {
+                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('api1-loadbalancer-name')), '/backendAddressPools/', variables('api1-bepool-name'))]"
+              },
+              "probe": {
+                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('api1-loadbalancer-name')), '/probes/lbprobe')]"
+              },
+              "protocol": "Tcp",
+              "frontendPort": 80,
+              "backendPort": 80,
+              "idleTimeoutInMinutes": 15
+            },
+            "name": "lbrule"
+          }
+        ],
+        "probes": [
+          {
+            "properties": {
+              "protocol": "Tcp",
+              "port": 80,
+              "intervalInSeconds": 15,
+              "numberOfProbes": 2
+            },
+            "name": "lbprobe"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachineScaleSets",
+      "name": "[variables('api1-vmset-name')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-03-30",
+      "tags": {
+        "displayName": "VMScaleSet"
+      },
+      "dependsOn": [
+        "storageLoop",
+        "[variables('api1-loadbalancer-id')]",
+        "[variables('api1-vnet-id')]"
+      ],
+      "sku": {
+        "name": "Standard_A1",
+        "tier": "Standard",
+        "capacity": "2"
+      },
+      "properties": {
+        "overprovision": "true",
+        "upgradePolicy": {
+          "mode": "Manual"
+        },
+        "virtualMachineProfile": {
+          "storageProfile": {
+            "osDisk": {
+              "vhdContainers": [
+                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('uniqueStringArray')[0]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
+                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('uniqueStringArray')[1]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
+                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('uniqueStringArray')[2]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
+                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('uniqueStringArray')[3]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
+                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('uniqueStringArray')[4]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]"
+              ],
+              "name": "osDisk",
+              "caching": "ReadOnly",
+              "createOption": "FromImage"
+            },
+            "imageReference": "[variables('api-imageReference')]"
+          },
+          "osProfile": {
+            "computerNamePrefix": "[toLower(substring(concat('vmset1', uniqueString(resourceGroup().id)), 0, 9))]",
+            "adminUsername": "[parameters('vmsetLogin')]",
+            "adminPassword": "[parameters('vmsetPassword')]"
+          },
+          "networkProfile": {
+            "networkInterfaceConfigurations": [
+              {
+                "name": "[variables('api1-network-interface-name')]",
+                "properties": {
+                  "primary": true,
+                  "ipConfigurations": [
+                    {
+                      "name": "[variables('api1-ipconfig-name')]",
+                      "properties": {
+                        "subnet": {
+                          "id": "[concat(resourceId('Microsoft.Network/virtualNetworks', variables('api1-vnet-name')), '/subnets/', variables('api1-subnet-name'))]"
+                        },
+                        "loadBalancerBackendAddressPools": [
+                          {
+                            "id": "[concat(variables('api1-loadbalancer-id'), '/backendAddressPools/', variables('api1-bepool-name'))]"
+                          }
+                        ],
+                        "loadBalancerInboundNatPools": [
+                          {
+                            "id": "[concat(variables('api1-loadbalancer-id'), '/inboundNatPools/', variables('api1-natpool-name'))]"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "extensionProfile": {
+            "extensions": [
+              {
+                "name": "Microsoft.Powershell.DSC",
+                "properties": {
+                  "publisher": "Microsoft.Powershell",
+                  "type": "DSC",
+                  "typeHandlerVersion": "2.9",
+                  "autoUpgradeMinorVersion": true,
+                  "settings": {
+                    "configuration": {
+                      "url": "https://github.com/dsinelnikov/PostsApi/raw/master/dsc.zip",
+                      "script": "vmset1-dsc.ps1",
+                      "function": "Main"
+                    },
+                    "configurationArguments": {
+                      "nodeName": "localhost"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+
+  ]
+}
