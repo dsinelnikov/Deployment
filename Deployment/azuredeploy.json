@@ -30,12 +30,21 @@
         "Standard_RAGRS",
         "Premium_LRS"
       ]
+    },
+    "jumpBoxLogin": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue":  "denis"
+    },
+    "jumpBoxPassword": {
+      "type": "securestring",
+      "defaultValue":  "P@ssw0rd1234"
     }
   },
   "variables": {
     "api1-sql-serverName": "[concat('api1-sql-server-', uniqueString(resourceGroup().id))]",
     "api1-sql-serverId": "[resourceId('Microsoft.Sql/servers', variables('api1-sql-serverName'))]",
-    "api1-sql-serverDbName": "[concat('api1-sql-server-db-', uniqueString(resourceGroup().id))]",
+    "api1-sql-serverDbName": "Posts",
     "api1-vnet-name": "[concat('api1-vnet-', uniqueString(resourceGroup().id))]",
     "api1-vnet-id": "[resourceId('Microsoft.Network/virtualNetworks/', variables('api1-vnet-name'))]",
     "api1-subnet-name": "[concat('api1-subnet-', uniqueString(resourceGroup().id))]",
@@ -54,17 +63,37 @@
     "api1-natpool-name": "[concat('api1-natpool-', uniqueString(resourceGroup().id))]",
     "api1-loadbalancer-name": "[concat('api1-loadbalancer-', uniqueString(resourceGroup().id))]",
     "api1-loadbalancer-id": "[resourceId('Microsoft.Network/loadBalancers', variables('api1-loadbalancer-name'))]",
-    "namingInfix": "[toLower(substring(concat(variables('api1-vmset-name'), uniqueString(resourceGroup().id)), 0, 9))]",
-    "newStorageAccountSuffix": "[concat(variables('namingInfix'), 'sa')]",
-    "uniqueStringArray": [
-      "[concat(uniqueString(concat(resourceGroup().id, variables('newStorageAccountSuffix'), '0')), variables('newStorageAccountSuffix'))]",
-      "[concat(uniqueString(concat(resourceGroup().id, variables('newStorageAccountSuffix'), '1')), variables('newStorageAccountSuffix'))]",
-      "[concat(uniqueString(concat(resourceGroup().id, variables('newStorageAccountSuffix'), '2')), variables('newStorageAccountSuffix'))]",
-      "[concat(uniqueString(concat(resourceGroup().id, variables('newStorageAccountSuffix'), '3')), variables('newStorageAccountSuffix'))]",
-      "[concat(uniqueString(concat(resourceGroup().id, variables('newStorageAccountSuffix'), '4')), variables('newStorageAccountSuffix'))]"
+    "api1-namingInfix": "[toLower(substring(concat(variables('api1-vmset-name'), uniqueString(resourceGroup().id)), 0, 9))]",
+    "api1-newStorageAccountSuffix": "[concat(variables('api1-namingInfix'), 'sa')]",
+    "api1-uniqueStringArray": [
+      "[concat(uniqueString(concat(resourceGroup().id, variables('api1-newStorageAccountSuffix'), '0')), variables('api1-newStorageAccountSuffix'))]",
+      "[concat(uniqueString(concat(resourceGroup().id, variables('api1-newStorageAccountSuffix'), '1')), variables('api1-newStorageAccountSuffix'))]",
+      "[concat(uniqueString(concat(resourceGroup().id, variables('api1-newStorageAccountSuffix'), '2')), variables('api1-newStorageAccountSuffix'))]",
+      "[concat(uniqueString(concat(resourceGroup().id, variables('api1-newStorageAccountSuffix'), '3')), variables('api1-newStorageAccountSuffix'))]",
+      "[concat(uniqueString(concat(resourceGroup().id, variables('api1-newStorageAccountSuffix'), '4')), variables('api1-newStorageAccountSuffix'))]"
     ],
     "vhdContainerName": "[concat(variables('api1-vnet-name'), 'vhd')]",
     "storageAccountName": "[concat('storageAccount', uniqueString(resourceGroup().id))]",
+    "JumpBoxName": "jumbox",
+    "JumpBoxStorageAccountName": "[concat('jbsa', uniqueString(resourceGroup().id))]",
+    "JumpBoxStorageAccountType": "Standard_LRS",
+    "JumpBoxSubnetPrefix": "10.0.0.0/16",
+    "JumpBoxSubnetSubnet1Name": "Subnet-1",
+    "JumpBoxSubnetSubnet1Prefix": "10.0.0.0/24",
+    "JumpBoxSubnetSubnet2Name": "Subnet-2",
+    "JumpBoxSubnetSubnet2Prefix": "10.0.1.0/24",
+    "JumpBoxImagePublisher": "MicrosoftWindowsServer",
+    "JumpBoxImageOffer": "WindowsServer",
+    "JumpBoxWindowsOSVersion": "2012-R2-Datacenter",
+    "JumpBoxOSDiskName": "JumpBoxOSDisk",
+    "JumpBoxVmSize": "Standard_D2_v2",
+    "JumpBoxVnetID": "[resourceId('Microsoft.Network/virtualNetworks', 'JumpBoxSubnet')]",
+    "JumpBoxSubnetRef": "[concat(variables('JumpBoxVnetID'), '/subnets/', variables('JumpBoxSubnetSubnet1Name'))]",
+    "JumpBoxStorageAccountContainerName": "vhds",
+    "JumpBoxNicName": "[concat(variables('JumpBoxName'), 'NetworkInterface')]",
+    "JumboxNamingInfix": "[toLower(substring(concat(variables('JumpBoxName'), uniqueString(resourceGroup().id)), 0, 9))]",
+    "JumpboxPublicIPAddressName": "[concat(variables('JumboxNamingInfix'), 'pip')]",
+    "JumpboxLongNamingInfix": "[toLower(variables('JumpBoxName'))]"
   },
   "resources": [
     {
@@ -93,7 +122,7 @@
     },
     {
       "type": "Microsoft.Storage/storageAccounts",
-      "name": "[variables('uniqueStringArray')[copyIndex()]]",
+      "name": "[variables('api1-uniqueStringArray')[copyIndex()]]",
       "location": "[resourceGroup().location]",
       "apiVersion": "2016-01-01",
       "tags": {
@@ -101,7 +130,7 @@
       },
       "copy": {
         "name": "storageLoop",
-        "count": "[length(variables('uniqueStringArray'))]"
+        "count": "[length(variables('api1-uniqueStringArray'))]"
       },
       "sku": {
         "name": "Standard_LRS"
@@ -208,12 +237,13 @@
       "dependsOn": [
         "storageLoop",
         "[variables('api1-loadbalancer-id')]",
-        "[variables('api1-vnet-id')]"
+        "[variables('api1-vnet-id')]",
+        "[variables('api1-sql-serverId')]"
       ],
       "sku": {
         "name": "Standard_A1",
         "tier": "Standard",
-        "capacity": "2"
+        "capacity": "1"
       },
       "properties": {
         "overprovision": "true",
@@ -224,11 +254,11 @@
           "storageProfile": {
             "osDisk": {
               "vhdContainers": [
-                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('uniqueStringArray')[0]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
-                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('uniqueStringArray')[1]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
-                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('uniqueStringArray')[2]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
-                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('uniqueStringArray')[3]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
-                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('uniqueStringArray')[4]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]"
+                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('api1-uniqueStringArray')[0]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
+                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('api1-uniqueStringArray')[1]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
+                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('api1-uniqueStringArray')[2]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
+                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('api1-uniqueStringArray')[3]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]",
+                "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('api1-uniqueStringArray')[4]), '2016-01-01').primaryEndpoints.blob, variables('vhdContainerName'))]"
               ],
               "name": "osDisk",
               "caching": "ReadOnly",
@@ -287,7 +317,10 @@
                       "function": "Main"
                     },
                     "configurationArguments": {
-                      "nodeName": "localhost"
+                      "nodeName": "localhost",
+                      "sqlServerName": "[variables('api1-sql-serverName')]",
+                      "sqlServerLogin": "[parameters('sqlServerLogin')]",
+                      "sqlServerPassword": "[parameters('sqlServerPassword')]"
                     }
                   }
                 }
@@ -296,7 +329,185 @@
           }
         }
       }
+    },
+    {
+      "name": "[variables('api1-sql-serverName')]",
+      "type": "Microsoft.Sql/servers",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2014-04-01-preview",
+      "dependsOn": [],
+      "tags": {
+        "displayName": "api1-sql-server"
+      },
+      "properties": {
+        "administratorLogin": "[parameters('sqlServerLogin')]",
+        "administratorLoginPassword": "[parameters('sqlServerPassword')]"
+      },
+      "resources": [
+        {
+          "name": "AllowAllWindowsAzureIps",
+          "type": "firewallrules",
+          "location": "[resourceGroup().location]",
+          "apiVersion": "2014-04-01-preview",
+          "dependsOn": [
+            "[variables('api1-sql-serverId')]"
+          ],
+          "properties": {
+            "startIpAddress": "0.0.0.0",
+            "endIpAddress": "0.0.0.0"
+          }
+        },
+        {
+          "name": "[variables('api1-sql-serverDbName')]",
+          "type": "databases",
+          "location": "[resourceGroup().location]",
+          "apiVersion": "2014-04-01-preview",
+          "dependsOn": [
+            "[variables('api1-sql-serverId')]"
+          ],
+          "tags": {
+            "displayName": "posts-db"
+          },
+          "properties": {
+            "collation": "SQL_Latin1_General_CP1_CI_AS",
+            "edition": "Basic",
+            "maxSizeBytes": "1073741824",
+            "requestedServiceObjectiveName": "Basic"
+          }
+        }
+      ]
+    },
+    {
+      "name": "[variables('JumpBoxStorageAccountName')]",
+      "type": "Microsoft.Storage/storageAccounts",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-01-01",
+      "sku": {
+        "name": "[variables('JumpBoxStorageAccountType')]"
+      },
+      "dependsOn": [],
+      "tags": {
+        "displayName": "JumpBoxStorageAccount"
+      },
+      "kind": "Storage"
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "[variables('JumpboxPublicIPAddressName')]",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2017-04-01",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic",
+        "dnsSettings": {
+          "domainNameLabel": "[variables('JumpboxLongNamingInfix')]"
+        }
+      }
+    },
+    {
+      "name": "JumpBoxSubnet",
+      "type": "Microsoft.Network/virtualNetworks",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-03-30",
+      "dependsOn": [],
+      "tags": {
+        "displayName": "JumpBoxSubnet"
+      },
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('JumpBoxSubnetPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('JumpBoxSubnetSubnet1Name')]",
+            "properties": {
+              "addressPrefix": "[variables('JumpBoxSubnetSubnet1Prefix')]"
+            }
+          },
+          {
+            "name": "[variables('JumpBoxSubnetSubnet2Name')]",
+            "properties": {
+              "addressPrefix": "[variables('JumpBoxSubnetSubnet2Prefix')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[variables('JumpBoxNicName')]",
+      "type": "Microsoft.Network/networkInterfaces",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-03-30",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', 'JumpBoxSubnet')]",
+        "[concat('Microsoft.Network/publicIPAddresses/', variables('JumpboxPublicIPAddressName'))]"
+      ],
+      "tags": {
+        "displayName": "JumpBoxNic"
+      },
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses',variables('JumpboxPublicIPAddressName'))]"
+              },
+              "subnet": {
+                "id": "[variables('JumpBoxSubnetRef')]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[variables('JumpBoxName')]",
+      "type": "Microsoft.Compute/virtualMachines",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2015-06-15",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('JumpBoxStorageAccountName'))]",
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('JumpBoxNicName'))]"
+      ],
+      "tags": {
+        "displayName": "JumpBox"
+      },
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[variables('JumpBoxVmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[variables('JumpBoxName')]",
+          "adminUsername": "[parameters('JumpBoxLogin')]",
+          "adminPassword": "[parameters('JumpBoxPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "[variables('JumpBoxImagePublisher')]",
+            "offer": "[variables('JumpBoxImageOffer')]",
+            "sku": "[variables('JumpBoxWindowsOSVersion')]",
+            "version": "latest"
+          },
+          "osDisk": {
+            "name": "JumpBoxOSDisk",
+            "vhd": {
+              "uri": "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('JumpBoxStorageAccountName')), '2016-01-01').primaryEndpoints.blob, variables('JumpBoxStorageAccountContainerName'), '/', variables('JumpBoxOSDiskName'), '.vhd')]"
+            },
+            "caching": "ReadWrite",
+            "createOption": "FromImage"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('JumpBoxNicName'))]"
+            }
+          ]
+        }
+      }
     }
-
   ]
 }
